@@ -16,7 +16,6 @@ class Net_with_activation(nn.Module):
         x = F.relu(x)  # 加入激活函數
         x = self.layer2(x)
         return x
-from mpl_toolkits.mplot3d import Axes3D  # 引進繪圖套件
 
 # 步驟1：產生訓練資料
 def dataset(show=True):
