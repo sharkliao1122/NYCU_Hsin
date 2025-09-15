@@ -4,6 +4,20 @@ import matplotlib.pyplot as plt
 from torch import nn
 import torch.nn.functional as F
 
+class Net_with_activation(nn.Module):
+    def __init__(self, hidden_size):
+        super(Net_with_activation, self).__init__()
+        self.hidden_size = hidden_size
+        self.layer1 = nn.Linear(3, self.hidden_size)
+        self.layer2 = nn.Linear(self.hidden_size, 1)
+
+    def forward(self, x):
+        x = self.layer1(x)
+        x = F.relu(x)  # 加入激活函數
+        x = self.layer2(x)
+        return x
+from mpl_toolkits.mplot3d import Axes3D  # 引進繪圖套件
+
 # 步驟1：產生訓練資料
 def dataset(show=True):
     
@@ -44,7 +58,13 @@ def run_case(n_hidden, beta):
     y = y / max(y)
     
     # 組合成 observation matrix (N, 3)
+    # 這種方式是現代機器學習的標準做法，能讓程式更簡潔、效率更高，也更容易維護和擴充。
     X = np.stack([x_1, x_2, x_3], axis=1)
+        # 打亂資料
+    N = X.shape[0] 
+    perm = np.random.permutation(N)
+    X = X[perm]
+    y = y[perm]
     
     # 分割訓練/測試資料
     N = X.shape[0]
@@ -58,18 +78,14 @@ def run_case(n_hidden, beta):
     X_test_torch = torch.tensor(X_test, dtype=torch.float)
     y_test_torch = torch.tensor(y_test, dtype=torch.float).unsqueeze(1)
     
-    # 建立模型：一層隱藏層
-    model = nn.Sequential(
-        nn.Linear(3, n_hidden),
-        nn.ReLU(),
-        nn.Linear(n_hidden, 1)
-    )
+    # 建立有激活函數的神經網路
+    model = Net_with_activation(n_hidden)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_func = nn.MSELoss()
     
     # 訓練
     loss_history = []
-    for ep in range(500):
+    for ep in range(500):     # 訓練次數
         y_pred = model(X_train_torch)
         loss = loss_func(y_pred, y_train_torch)
         loss_history.append(loss.item())
@@ -85,7 +101,16 @@ def run_case(n_hidden, beta):
     train_mse = np.mean((y_train_hat - y_train)**2)
     test_mse = np.mean((y_test_hat - y_test)**2)
     
-    
+    # 化訓練資料
+    plt.figure(figsize=(7,7))
+    plt.scatter(y_train, y_train_hat, alpha=0.5)
+    plt.plot([min(y_train), max(y_train)], [min(y_train), max(y_train)], 'r--')
+    plt.xlabel('True y (train)')
+    plt.ylabel('Predicted y_hat (train)')
+    plt.title(" Training set " + " " + f'Train: n={n_hidden}, beta={beta}, MSE={train_mse:.4f}')
+    plt.savefig(f'C:/Users/User/OneDrive/桌面/學業/AI與土木應用/GitHub/NYCU/NYCU/week_2_chart/train_n{n_hidden}_beta{beta}.png')
+    plt.show()
+   
     
     # 畫測試資料
     plt.figure(figsize=(7,7))
@@ -93,22 +118,23 @@ def run_case(n_hidden, beta):
     plt.plot([min(y_test), max(y_test)], [min(y_test), max(y_test)], 'r--')
     plt.xlabel('True y (test)')
     plt.ylabel('Predicted y_hat (test)')
-    plt.title(f'Test: n={n_hidden}, beta={beta}, MSE={test_mse:.4f}')
+    plt.title(" Testing set " + ' ' + f'Test: n={n_hidden}, beta={beta}, MSE={test_mse:.4f}')
+    plt.savefig(f'C:/Users/User/OneDrive/桌面/學業/AI與土木應用/GitHub/NYCU/NYCU/week_2_chart/test_n{n_hidden}_beta{beta}.png')
     plt.show()
     
-    # 回傳結果
+    
     return train_mse, test_mse
     
-    # 回傳結果
-    return y_train, y_train_hat, y_test, y_test_hat
-
+    
 # 題目要求的五種 case
 cases = [
     (1, 0.7),
+    (2, 0.3),
     (2, 0.7),
     (100, 0.7),
-    (2, 0.3),
-    (100, 0.3)
+    (100, 0.3),
+    (1000, 0.7),
+    (1000, 0.3)
 ]
 results = []
 for n_hidden, beta in cases:
