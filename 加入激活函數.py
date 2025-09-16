@@ -20,7 +20,7 @@ class Net_with_activation(nn.Module):
 # 步驟1：產生訓練資料
 def dataset(show=True):
     
-    # 產生 x 值，範圍從 -50 到 500，步長為 0.01
+    # 產生 x 值，範圍從 -500 到 500，步長為 1
     x_1 = np.arange(-500, 500, 1)
     x_2 = np.arange(-500, 500, 1)
     x_3 = np.arange(-500, 500, 1)
@@ -42,13 +42,13 @@ def dataset(show=True):
     # 回傳 x 與 y
     return (x_1, x_2, x_3), y   
 
-# 呼叫 dataset 函數並取得 x, y
+
 
 # 依題目參數設定
 def run_case(n_hidden, beta):
     
     # 產生資料
-    (x_1, x_2, x_3), y = dataset(show=False)
+    (x_1, x_2, x_3), y = dataset(show=False) # 呼叫 dataset 函數並取得 x, y
     
     # 正規化
     x_1 = x_1 / max(x_1)
@@ -75,7 +75,6 @@ def run_case(n_hidden, beta):
     X_train_torch = torch.tensor(X_train, dtype=torch.float)
     y_train_torch = torch.tensor(y_train, dtype=torch.float).unsqueeze(1)
     X_test_torch = torch.tensor(X_test, dtype=torch.float)
-    y_test_torch = torch.tensor(y_test, dtype=torch.float).unsqueeze(1)
     
     # 建立有激活函數的神經網路
     model = Net_with_activation(n_hidden)
@@ -100,7 +99,7 @@ def run_case(n_hidden, beta):
     train_mse = np.mean((y_train_hat - y_train)**2)
     test_mse = np.mean((y_test_hat - y_test)**2)
     
-    # 化訓練資料
+    # 畫訓練資料
     plt.figure(figsize=(7,7))
     plt.scatter(y_train, y_train_hat, alpha=0.5)
     plt.plot([min(y_train), max(y_train)], [min(y_train), max(y_train)], 'r--')
