@@ -105,8 +105,8 @@ def run_case(n_hidden, beta):
     plt.plot([min(y_train), max(y_train)], [min(y_train), max(y_train)], 'r--')
     plt.xlabel('True y (train)')
     plt.ylabel('Predicted y_hat (train)')
-    plt.title(" Training set " + " " + f'Train: n={n_hidden}, beta={beta}, MSE={train_mse:.4f}')
-    plt.savefig(f'C:/Users/s7103/OneDrive/桌面/學業/AI與土木應用/GitHub/NYCU/NYCU/week_2_chart/train_n{n_hidden}_beta{beta}.png')
+    plt.title(f"Training set  Train: n={n_hidden}, beta={beta}, MSE={train_mse:.4f}")
+    plt.savefig(f'C:/Users/s7103/OneDrive/文件/GitHub/NYCU_Hsin/week_2_chart/train_n{n_hidden}_beta{beta}.png')
     plt.show()
    
     
@@ -117,7 +117,7 @@ def run_case(n_hidden, beta):
     plt.xlabel('True y (test)')
     plt.ylabel('Predicted y_hat (test)')
     plt.title(" Testing set " + ' ' + f'Test: n={n_hidden}, beta={beta}, MSE={test_mse:.4f}')
-    plt.savefig(f'C:/Users/s7103/OneDrive/桌面/學業/AI與土木應用/GitHub/NYCU/NYCU/week_2_chart/test_n{n_hidden}_beta{beta}.png')
+    plt.savefig(f'C:/Users/s7103/OneDrive/文件/GitHub/NYCU_Hsin/week_2_chart/test_n{n_hidden}_beta{beta}.png')
     plt.show()
     
     
