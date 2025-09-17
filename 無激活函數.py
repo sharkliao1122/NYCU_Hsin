@@ -5,6 +5,7 @@ from torch import nn
 import torch.nn.functional as F
 import os
 
+
 class Net_with_activation(nn.Module):
     def __init__(self, hidden_size):
         super(Net_with_activation, self).__init__()
@@ -14,7 +15,7 @@ class Net_with_activation(nn.Module):
 
     def forward(self, x):
         x = self.layer1(x)
-        x = F.relu(x)  # 加入激活函數
+        #x = F.relu(x)  # 加入激活函數
         x = self.layer2(x)
         return x
 
@@ -31,7 +32,7 @@ def dataset(show=True):
 
     # 如果 show 為 True，則繪製 3D 散佈圖
     if show:
-        fig = plt.figure()
+        ax.scatter(x_1, x_2, x_3, c=y, cmap='viridis', alpha=SCATTER_ALPHA)
         ax = fig.add_subplot(projection='3d')
         ax.scatter(x_1, x_2, x_3, c=y, cmap='viridis', alpha=0.5)
         ax.set_title('Data set')
@@ -59,8 +60,8 @@ def run_case(n_hidden, beta):
     
     # 組合成 observation matrix (N, 3)
     # 這種方式是現代機器學習的標準做法，能讓程式更簡潔、效率更高，也更容易維護和擴充。
-    X = np.stack([x_1, x_2, x_3], axis=1)  
-    N = X.shape[0] # 取得資料矩陣 X 的樣本數（即資料的筆數）
+    X = np.stack([x_1, x_2, x_3], axis=1)
+    N = X.shape[0] 
     perm = np.random.permutation(N)  # 打亂資料
     X = X[perm]
     y = y[perm]
@@ -98,31 +99,35 @@ def run_case(n_hidden, beta):
     # 計算 MSE
     train_mse = np.mean((y_train_hat - y_train)**2)
     test_mse = np.mean((y_test_hat - y_test)**2)
-    
-    # 建立儲存圖片的資料夾（如果不存在）
-    chart_dir = os.path.join('.', 'week_2_chart_function')
-    os.makedirs(chart_dir, exist_ok=True)
-    
-    # 畫訓練資料
+    SCATTER_ALPHA = 0.5
     plt.figure(figsize=(7,7))
-    plt.scatter(y_train, y_train_hat, alpha=0.5)
+    plt.scatter(y_train, y_train_hat, alpha=SCATTER_ALPHA)
     plt.plot([min(y_train), max(y_train)], [min(y_train), max(y_train)], 'r--')
     plt.xlabel('True y (train)')
-    plt.ylabel('Predicted y_hat (train)')
-    plt.title(f"Training set  Train: n={n_hidden}, beta={beta}, MSE={train_mse:.4f}")
+    plt.title(f"Training set: n={n_hidden}, beta={beta}, MSE={train_mse:.4f}")
+    
+    # 建立儲存圖片的資料夾（如果不存在）
+    chart_dir = os.path.join('.', 'week_2_chart_nofunction')
+    os.makedirs(chart_dir, exist_ok=True)
+   
+
     plt.savefig(os.path.join(chart_dir, f'train_n{n_hidden}_beta{beta}.png'))
+    plt.show()
     plt.close()
    
     
-    # 畫測試資料
     plt.figure(figsize=(7,7))
-    plt.scatter(y_test, y_test_hat, alpha=0.5)
+    plt.scatter(y_test, y_test_hat, alpha=SCATTER_ALPHA)
     plt.plot([min(y_test), max(y_test)], [min(y_test), max(y_test)], 'r--')
     plt.xlabel('True y (test)')
     plt.ylabel('Predicted y_hat (test)')
     plt.title(" Testing set " + ' ' + f'Test: n={n_hidden}, beta={beta}, MSE={test_mse:.4f}')
     plt.savefig(os.path.join(chart_dir, f'test_n{n_hidden}_beta{beta}.png'))
+    plt.show()
     plt.close()
+    plt.show()
+    plt.close()
+    
     
     return train_mse, test_mse
     
