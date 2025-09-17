@@ -132,7 +132,7 @@ cases = [
     (100, 0.7),
     (100, 0.3),
     (100000, 0.7),
-    (100000, 0.3)
+    (100000, 0.1)
 ]
 results = []
 for n_hidden, beta in cases:
@@ -140,7 +140,7 @@ for n_hidden, beta in cases:
     train_mse, test_mse = run_case(n_hidden, beta)
     results.append((n_hidden, beta, train_mse, test_mse))
 
-print("\n各 case 的 MSE：")
+print("\n各 case 的 MSE:")
 for i, (n_hidden, beta, train_mse, test_mse) in enumerate(results, 1):
     print(f"Case {i}: n={n_hidden}, beta={beta} | Train MSE={train_mse:.4f} | Test MSE={test_mse:.4f}")
 
