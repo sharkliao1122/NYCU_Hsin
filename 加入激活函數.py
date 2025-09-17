@@ -81,6 +81,10 @@ def run_case(n_hidden, beta):
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_func = nn.MSELoss()
     
+    # 建立儲存圖片的資料夾（如果不存在）
+    chart_dir = os.path.join('.', 'week_2_chart_function')
+    os.makedirs(chart_dir, exist_ok=True)   
+    
     # 訓練
     loss_history = []
     for ep in range(500):     # 訓練次數
@@ -90,6 +94,13 @@ def run_case(n_hidden, beta):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        plt.plot(loss_history)
+    
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title(f'Loss Curve: n_hidden={n_hidden}, beta={beta}')
+    plt.savefig(os.path.join(chart_dir, f'losscurve_n{n_hidden}_beta{beta}.png'))
+    plt.close()
     
     # 預測
     y_train_hat = model(X_train_torch).detach().numpy().flatten()
@@ -99,9 +110,6 @@ def run_case(n_hidden, beta):
     train_mse = np.mean((y_train_hat - y_train)**2)
     test_mse = np.mean((y_test_hat - y_test)**2)
     
-    # 建立儲存圖片的資料夾（如果不存在）
-    chart_dir = os.path.join('.', 'week_2_chart_function')
-    os.makedirs(chart_dir, exist_ok=True)
     
     # 畫訓練資料
     plt.figure(figsize=(7,7))
