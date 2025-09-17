@@ -32,7 +32,7 @@ def dataset(show=True):
 
     # 如果 show 為 True，則繪製 3D 散佈圖
     if show:
-        ax.scatter(x_1, x_2, x_3, c=y, cmap='viridis', alpha=SCATTER_ALPHA)
+        fig = plt.figure()
         ax = fig.add_subplot(projection='3d')
         ax.scatter(x_1, x_2, x_3, c=y, cmap='viridis', alpha=0.5)
         ax.set_title('Data set')

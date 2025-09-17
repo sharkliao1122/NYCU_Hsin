@@ -126,7 +126,7 @@ def run_case(n_hidden, beta):
     
     return train_mse, test_mse
     
-    
+   
 # 題目要求的五種 case
 cases = [
     (1, 0.7),
@@ -138,6 +138,8 @@ cases = [
     (100000, 0.1)
 ]
 results = []
+
+# 啟動
 for n_hidden, beta in cases:
     print(f'Running case: n={n_hidden}, beta={beta}')
     train_mse, test_mse = run_case(n_hidden, beta)
