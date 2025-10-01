@@ -19,7 +19,7 @@ import torch.optim as optim  # 匯入最佳化工具
 
 print(torch.version.cuda)         # 顯示 PyTorch 支援的 CUDA 版本
 print(torch.cuda.is_available())  # True 表示可用
-print(torch.cuda.is_available())  # 若顯示 True，表示可用
+
 
 # 定義影像前處理流程：轉為 Tensor 並標準化到 [-1, 1]
 transform = transforms.Compose([
