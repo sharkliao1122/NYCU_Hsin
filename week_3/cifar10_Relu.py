@@ -1,82 +1,45 @@
 # ReLU 激活 + Dropout
-import torch  # 匯入 PyTorch 主程式庫
-import torchvision  # 匯入 torchvision 影像資料集與工具
-import torchvision.transforms as transforms  # 匯入影像轉換工具
-import matplotlib.pyplot as plt  # 匯入繪圖工具
-import numpy as np  # 匯入數值運算工具
-import torch.nn as nn  # 匯入神經網路模組
-import torch.nn.functional as F  # 匯入常用函式
-import torch.optim as optim  # 匯入最佳化工具
-from collections import Counter  # 匯入計數器工具
-import seaborn as sns
-from sklearn.metrics import confusion_matrix, precision_recall_fscore_support, classification_report
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+import torchvision
+import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
-# 定義影像前處理流程：轉為 Tensor 並標準化到 [-1, 1]
-transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-])
+#  ========== 設定運算裝置 ==========
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print('目前運算裝置:', device)
 
-batch_size = 4  # 每批次取 4 張影像
-
- # 載入 CIFAR-10 訓練集
-trainset = torchvision.datasets.CIFAR10(root='./data', train=True,
-                                        download=True, transform=transform)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size,
-                                          shuffle=True, num_workers=0)
-
-
-# num_workers=0 避免 Windows 系統的多工問題，非0可以加速資料載入
-
-# 載入 CIFAR-10 測試集
-testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                       download=True, transform=transform)
-testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size,
-                                         shuffle=False, num_workers=0)
-
- # CIFAR-10 的 10 個類別
-classes = ('plane', 'car', 'bird', 'cat',
-           'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
-
-# 統計每個類別的圖片數量
-label_counter = Counter(trainset.targets)
-for idx, class_name in enumerate(classes):
-    print(f'{class_name:5s}: {label_counter[idx]}')
-
-
-# 顯示影像的輔助函式
-def imshow(img):
-    img = img / 2 + 0.5     # 反標準化，將像素值還原到 [0,1]
-    npimg = img.numpy()     # 轉換為 numpy 陣列
-    plt.imshow(np.transpose(npimg, (1, 2, 0)))  # 調整通道順序並顯示 從 C,H,W 轉為 H,W,C (H 是高度 W 是寬度 C 是通道數)
-    plt.show()
-
-# 取得一批隨機訓練影像並顯示
-dataiter = iter(trainloader)
-images, labels = next(dataiter)
-
-imshow(torchvision.utils.make_grid(images))
-print(' '.join(f'{classes[labels[j]]:5s}' for j in range(batch_size)))# 顯示標籤(類別)
-
-# 定義卷積神經網路
-class NetReLU(nn.Module):
+# ========== 定義模型 ==========
+class Net(nn.Module):
     def __init__(self, dropout_p=0.5):
-        super().__init__()
-        self.conv1 = nn.Conv2d(3, 6, 5)
-        self.conv2 = nn.Conv2d(6, 16, 5)
-        self.conv3 = nn.Conv2d(16, 32, 2)
-        self.conv4 = nn.Conv2d(32, 64, 2)
+        super(Net, self).__init__()
+        # 四層卷積層
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
         self.pool = nn.MaxPool2d(2, 2)
-        self.fc1 = nn.Linear(64, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
         self.dropout = nn.Dropout(p=dropout_p)
+        # 計算池化後的輸入維度：32x32 -> 2次池化後 8x8，通道數256
+        self.fc1 = nn.Linear(256*8*8, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 10)
+
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x)))
-        x = self.pool(F.relu(self.conv2(x)))
-        x = self.pool(F.relu(self.conv3(x)))
+        # 四層卷積 + ReLU + 池化
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = self.pool(x)
+        x = F.relu(self.conv3(x))
         x = F.relu(self.conv4(x))
-        x = torch.flatten(x, 1)
+        x = self.pool(x)
+        x = self.dropout(x)
+        # 展平成一維
+        x = x.view(x.size(0), -1)
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
         x = F.relu(self.fc2(x))
@@ -84,155 +47,182 @@ class NetReLU(nn.Module):
         x = self.fc3(x)
         return x
 
-net = NetReLU(dropout_p=0.3)  # 30% dropout
+# ========== 數據集 ==========
+transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,))])
+trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True)
+testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+testloader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False)
 
-# 優化器實驗：SGD、Adam、RMSprop
+classes = trainset.classes
+
+# ========== 顏色設定 ==========
+optimizer_colors = {
+    "SGD": "red",
+    "Adam": "blue",
+    "RMSprop": "green"
+}
+
+# ========== 訓練與評估函式 ==========
+def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epochs=5, overfit_threshold=15):
+    train_loss_history = {}
+    train_acc_history = {}
+    test_loss_history = {}
+    test_acc_history = {}
+    results = {}
+    
+    for opt_name, opt_fn in optimizers.items():
+        print(f'\n===== {model_name} | Optimizer: {opt_name} =====')
+        net = model_class(dropout_p=dropout_p).to(device)
+        criterion = nn.CrossEntropyLoss().to(device)
+        optimizer = opt_fn(net)
+        
+        loss_list, acc_list = [], []
+        test_loss_list, test_acc_list = [], []
+
+        for epoch in range(num_epochs):
+            # ---------- 訓練 ----------
+            net.train()
+            running_loss, correct, total = 0.0, 0, 0
+            for inputs, labels in trainloader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                optimizer.zero_grad()
+                outputs = net(inputs)
+                loss = criterion(outputs, labels)
+                loss.backward()
+                optimizer.step()
+                running_loss += loss.item()
+                _, predicted = torch.max(outputs, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+            avg_loss = running_loss / len(trainloader)
+            avg_acc = 100 * correct / total
+            loss_list.append(avg_loss)
+            acc_list.append(avg_acc)
+
+            # ---------- 測試 ----------
+            net.eval()
+            test_loss, test_correct, test_total = 0.0, 0, 0
+            with torch.no_grad():
+                for inputs, labels in testloader:
+                    inputs, labels = inputs.to(device), labels.to(device)
+                    outputs = net(inputs)
+                    loss = criterion(outputs, labels)
+                    test_loss += loss.item()
+                    _, predicted = torch.max(outputs, 1)
+                    test_total += labels.size(0)
+                    test_correct += (predicted == labels).sum().item()
+            avg_test_loss = test_loss / len(testloader)
+            avg_test_acc = 100 * test_correct / test_total
+            test_loss_list.append(avg_test_loss)
+            test_acc_list.append(avg_test_acc)
+
+            # ---------- 印出結果 ----------
+            print(f'Epoch {epoch+1}: '
+                  f'Train Loss={avg_loss:.4f}, Train Acc={avg_acc:.2f}% | '
+                  f'Test Loss={avg_test_loss:.4f}, Test Acc={avg_test_acc:.2f}%')
+
+            # ⚡ 自動過擬合提示
+            acc_gap = avg_acc - avg_test_acc
+            if acc_gap > overfit_threshold:
+                print(f'⚠️ 注意：可能過擬合！(Train Acc 高 {acc_gap:.2f}% 比 Test Acc)')
+
+        # 存歷史
+        train_loss_history[opt_name] = loss_list
+        train_acc_history[opt_name] = acc_list
+        test_loss_history[opt_name] = test_loss_list
+        test_acc_history[opt_name] = test_acc_list
+
+        # ---------- 混淆矩陣 ----------
+        y_true, y_pred = [], []
+        with torch.no_grad():
+            for inputs, labels in testloader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = net(inputs)
+                _, predicted = torch.max(outputs, 1)
+                y_true.extend(labels.cpu().numpy())
+                y_pred.extend(predicted.cpu().numpy())
+
+        cm = confusion_matrix(y_true, y_pred)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes)
+        disp.plot(cmap=plt.cm.Blues, xticks_rotation=45)
+        plt.title(f'Confusion Matrix (relu, {model_name}, {opt_name})')
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_relu_{model_name}_{opt_name}.png')
+        plt.title(f'Confusion Matrix (relu, {model_name}, {opt_name})')
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_relu_{model_name}_{opt_name}.png')
+        
+
+        # ---------- 誤分類圖片 ----------
+        misclassified_images = []
+        with torch.no_grad():
+            for inputs, labels in testloader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = net(inputs)
+                _, predicted = torch.max(outputs, 1)
+                for i in range(len(labels)):
+                    if labels[i] != predicted[i]:
+                        # 回到 CPU 以便顯示
+                        misclassified_images.append((inputs[i].cpu(), predicted[i].cpu(), labels[i].cpu()))
+                    if len(misclassified_images) >= 10:
+                        break
+                if len(misclassified_images) >= 10:
+                    break
+
+        plt.figure(figsize=(12, 6))
+        for i, (img, pred, label) in enumerate(misclassified_images):
+            plt.subplot(2, 5, i + 1)
+            plt.imshow(np.transpose(img.numpy(), (1, 2, 0)))
+            plt.title(f'P: {classes[pred]}\nT: {classes[label]} (relu)')
+            plt.title(f'P: {classes[pred]}\nT: {classes[label]} (relu)')
+            plt.axis('off')
+        plt.suptitle(f'Misclassified Images (relu, {model_name}, {opt_name})')
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_relu_{model_name}_{opt_name}.png')
+        plt.suptitle(f'Misclassified Images (relu, {model_name}, {opt_name})')
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_relu_{model_name}_{opt_name}.png')
+        
+
+        results[opt_name] = {
+            'train_loss': loss_list,
+            'train_acc': acc_list,
+            'test_loss': test_loss_list,
+            'test_acc': test_acc_list
+        }
+
+    # ---------- 畫圖：過擬合判斷 ----------
+    plt.figure(figsize=(12,5))
+    # Loss 曲線
+    plt.subplot(1,2,1)
+    for opt_name in train_loss_history.keys():
+        color = optimizer_colors.get(opt_name, "black")
+        plt.plot(train_loss_history[opt_name], label=f'{opt_name} (Train)', linestyle='-', color=color)
+        plt.plot(test_loss_history[opt_name], label=f'{opt_name} (Test)', linestyle='--', color=color)
+    plt.title(f'{model_name} Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+
+    # Accuracy 曲線
+    plt.subplot(1,2,2)
+    for opt_name in train_acc_history.keys():
+        color = optimizer_colors.get(opt_name, "black")
+        plt.plot(train_acc_history[opt_name], label=f'{opt_name} (Train)', linestyle='-', color=color)
+        plt.plot(test_acc_history[opt_name], label=f'{opt_name} (Test)', linestyle='--', color=color)
+    plt.title(f'{model_name} Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\overfitting_curve_RELU_{model_name}.png')
+    
+    
+    return results
+
+# ========== 測試執行 ==========
 optimizers = {
-    'SGD': lambda net: optim.SGD(net.parameters(), lr=0.001, momentum=0.9),
+    'SGD': lambda net: optim.SGD(net.parameters(), lr=0.01, momentum=0.9),
     'Adam': lambda net: optim.Adam(net.parameters(), lr=0.001),
     'RMSprop': lambda net: optim.RMSprop(net.parameters(), lr=0.001)
 }
 
-num_epochs = 5  # 可自行調整訓練 epoch 數
-train_loss_history = {}
-train_acc_history = {}
-
-for opt_name, opt_fn in optimizers.items():
-    print(f'\n===== Optimizer: {opt_name} =====')
-    # 重新初始化模型
-    net = NetReLU(dropout_p=0.5)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = opt_fn(net)
-    loss_list = []
-    acc_list = []
-    for epoch in range(num_epochs):
-        running_loss = 0.0
-        correct = 0
-        total = 0
-        for i, data in enumerate(trainloader, 0):
-            inputs, labels = data
-            optimizer.zero_grad()
-            outputs = net(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
-            running_loss += loss.item()
-            _, predicted = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-        avg_loss = running_loss / len(trainloader)
-        avg_acc = 100 * correct / total
-        loss_list.append(avg_loss)
-        acc_list.append(avg_acc)
-        print(f'Epoch {epoch+1}: Loss={avg_loss:.4f}, Accuracy={avg_acc:.2f}%')
-    train_loss_history[opt_name] = loss_list
-    train_acc_history[opt_name] = acc_list
-print('Finished Training All Optimizers')
-
-# 繪製 loss 與 accuracy 曲線
-plt.figure(figsize=(12,5))
-plt.subplot(1,2,1)
-for opt_name, loss_list in train_loss_history.items():
-    plt.plot(loss_list, label=opt_name)
-plt.title('Training Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.legend()
-
-plt.subplot(1,2,2)
-for opt_name, acc_list in train_acc_history.items():
-    plt.plot(acc_list, label=opt_name)
-plt.title('Training Accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy (%)')
-plt.legend()
-plt.tight_layout()
-plt.show()
-
-# 儲存訓練好的模型
-PATH = './cifar_net.pth'
-torch.save(net.state_dict(), PATH)
-
-# 取得一批測試影像並顯示
-dataiter = iter(testloader)
-images, labels = next(dataiter)
-imshow(torchvision.utils.make_grid(images))
-print('GroundTruth: ', ' '.join(f'{classes[labels[j]]:5s}' for j in range(4)))
-
-# 載入模型並進行預測
-net = NetReLU(dropout_p=0.5)  # 50% dropout
-net.load_state_dict(torch.load(PATH))
-outputs = net(images)  # 前向傳播
-_, predicted = torch.max(outputs, 1)  # 取得預測類別
-print('Predicted: ', ' '.join(f'{classes[predicted[j]]:5s}' for j in range(4)))
-
-# 計算整體測試集準確率
-correct = 0
-total = 0
-with torch.no_grad():
-    for data in testloader:
-        images, labels = data
-        outputs = net(images)
-        _, predicted = torch.max(outputs, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-print(f'Accuracy of the network on the 10000 test images: {100 * correct // total} %')
-
-
-# 混淆矩陣、精確率、召回率、F1-score、誤分類可視化
-
-
-all_preds = []
-all_labels = []
-misclassified_imgs = []
-misclassified_true = []
-misclassified_pred = []
-
-with torch.no_grad():
-    for data in testloader:
-        images, labels = data
-        outputs = net(images)
-        _, predictions = torch.max(outputs, 1)
-        all_preds.extend(predictions.cpu().numpy())
-        all_labels.extend(labels.cpu().numpy())
-        # 收集誤分類圖片
-        for img, true, pred in zip(images, labels, predictions):
-            if true != pred:
-                misclassified_imgs.append(img)
-                misclassified_true.append(true.item())
-                misclassified_pred.append(pred.item())
-
-# 混淆矩陣
-cm = confusion_matrix(all_labels, all_preds)
-plt.figure(figsize=(8,6))
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=classes, yticklabels=classes)
-plt.xlabel('Predicted')
-plt.ylabel('True')
-plt.title('Confusion Matrix')
-plt.show()
-
-# 精確率、召回率、F1-score
-report = classification_report(all_labels, all_preds, target_names=classes, digits=3)
-print(report)
-
-# 顯示部分誤分類圖片
-num_show = 8  # 可調整展示數量
-plt.figure(figsize=(16,4))
-for i in range(min(num_show, len(misclassified_imgs))):
-    plt.subplot(1, num_show, i+1)
-    img = misclassified_imgs[i] / 2 + 0.5  # 反標準化
-    npimg = img.numpy()
-    plt.imshow(np.transpose(npimg, (1,2,0)))
-    plt.title(f'T:{classes[misclassified_true[i]]}\nP:{classes[misclassified_pred[i]]}')
-    plt.axis('off')
-plt.suptitle('Misclassified Images (T=True, P=Pred)')
-plt.show()
-
-# 設定運算裝置（GPU 或 CPU）
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-net.to(device)  # 將模型移到 GPU
-inputs, labels = inputs.to(device), labels.to(device)  # 將資料移到 GPU
-print(device)
-
-
-del dataiter  # 釋放記憶體
+results = train_and_evaluate(Net, "FC_Net", dropout_p=0.5, optimizers=optimizers, num_epochs=5)

@@ -10,27 +10,46 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
 import torchvision
 import torchvision.transforms as transforms
 import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
+#  ========== 設定運算裝置 ==========
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print('目前運算裝置:', device)
+
 # ========== 定義模型 ==========
 class Net(nn.Module):
     def __init__(self, dropout_p=0.5):
         super(Net, self).__init__()
-        self.fc1 = nn.Linear(3*32*32, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 10)
+        # 四層卷積層
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
+        self.conv4 = nn.Conv2d(128, 256, kernel_size=3, padding=1)
+        self.pool = nn.MaxPool2d(2, 2)
         self.dropout = nn.Dropout(p=dropout_p)
+        # 計算池化後的輸入維度：32x32 -> 2次池化後 8x8，通道數256
+        self.fc1 = nn.Linear(256*8*8, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 10)
 
     def forward(self, x):
-        x = x.view(-1, 3*32*32)
-        x = F.relu(self.fc1(x))
+        # 四層卷積 + Sigmoid + 池化
+        x = torch.sigmoid(self.conv1(x))
+        x = torch.sigmoid(self.conv2(x))
+        x = self.pool(x)
+        x = torch.sigmoid(self.conv3(x))
+        x = torch.sigmoid(self.conv4(x))
+        x = self.pool(x)
         x = self.dropout(x)
-        x = F.relu(self.fc2(x))
+        # 展平成一維
+        x = x.view(x.size(0), -1)
+        x = torch.sigmoid(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.sigmoid(self.fc2(x))
         x = self.dropout(x)
         x = self.fc3(x)
         return x
@@ -52,68 +71,65 @@ optimizer_colors = {
 }
 
 # ========== 訓練與評估函式 ==========
-def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epochs=5, overfit_threshold=15):
+def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epochs=5):
     train_loss_history = {}
     train_acc_history = {}
     test_loss_history = {}
     test_acc_history = {}
     results = {}
-    
+
+
     for opt_name, opt_fn in optimizers.items():
         print(f'\n===== {model_name} | Optimizer: {opt_name} =====')
-        net = model_class(dropout_p=dropout_p)
-        criterion = nn.CrossEntropyLoss()
+        net = model_class(dropout_p=dropout_p).to(device)
+        criterion = nn.CrossEntropyLoss().to(device)
         optimizer = opt_fn(net)
-        
+
         loss_list, acc_list = [], []
         test_loss_list, test_acc_list = [], []
 
         for epoch in range(num_epochs):
-            # ---------- 訓練 ----------
             net.train()
-            running_loss, correct, total = 0.0, 0, 0
+            running_loss = 0.0
+            correct = 0
+            total = 0
             for inputs, labels in trainloader:
+                inputs, labels = inputs.to(device), labels.to(device)
                 optimizer.zero_grad()
                 outputs = net(inputs)
                 loss = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
-                running_loss += loss.item()
+                running_loss += loss.item() * inputs.size(0)
                 _, predicted = torch.max(outputs, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
-            avg_loss = running_loss / len(trainloader)
-            avg_acc = 100 * correct / total
-            loss_list.append(avg_loss)
-            acc_list.append(avg_acc)
+            epoch_loss = running_loss / len(trainloader.dataset)
+            epoch_acc = 100. * correct / total
+            loss_list.append(epoch_loss)
+            acc_list.append(epoch_acc)
 
-            # ---------- 測試 ----------
+            # Evaluate on test set
             net.eval()
-            test_loss, test_correct, test_total = 0.0, 0, 0
+            test_loss = 0.0
+            correct = 0
+            total = 0
             with torch.no_grad():
                 for inputs, labels in testloader:
+                    inputs, labels = inputs.to(device), labels.to(device)
                     outputs = net(inputs)
                     loss = criterion(outputs, labels)
-                    test_loss += loss.item()
+                    test_loss += loss.item() * inputs.size(0)
                     _, predicted = torch.max(outputs, 1)
-                    test_total += labels.size(0)
-                    test_correct += (predicted == labels).sum().item()
-            avg_test_loss = test_loss / len(testloader)
-            avg_test_acc = 100 * test_correct / test_total
-            test_loss_list.append(avg_test_loss)
-            test_acc_list.append(avg_test_acc)
+                    total += labels.size(0)
+                    correct += (predicted == labels).sum().item()
+            test_epoch_loss = test_loss / len(testloader.dataset)
+            test_epoch_acc = 100. * correct / total
+            test_loss_list.append(test_epoch_loss)
+            test_acc_list.append(test_epoch_acc)
 
-            # ---------- 印出結果 ----------
-            print(f'Epoch {epoch+1}: '
-                  f'Train Loss={avg_loss:.4f}, Train Acc={avg_acc:.2f}% | '
-                  f'Test Loss={avg_test_loss:.4f}, Test Acc={avg_test_acc:.2f}%')
+            print(f"Epoch {epoch+1}: Train Loss={epoch_loss:.4f}, Train Acc={epoch_acc:.2f}% | Test Loss={test_epoch_loss:.4f}, Test Acc={test_epoch_acc:.2f}%")
 
-            # ⚡ 自動過擬合提示
-            acc_gap = avg_acc - avg_test_acc
-            if acc_gap > overfit_threshold:
-                print(f'⚠️ 注意：可能過擬合！(Train Acc 高 {acc_gap:.2f}% 比 Test Acc)')
-
-        # 存歷史
         train_loss_history[opt_name] = loss_list
         train_acc_history[opt_name] = acc_list
         test_loss_history[opt_name] = test_loss_list
@@ -123,32 +139,33 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
         y_true, y_pred = [], []
         with torch.no_grad():
             for inputs, labels in testloader:
+                inputs, labels = inputs.to(device), labels.to(device)
                 outputs = net(inputs)
                 _, predicted = torch.max(outputs, 1)
-                y_true.extend(labels.numpy())
-                y_pred.extend(predicted.numpy())
+                y_true.extend(labels.cpu().numpy())
+                y_pred.extend(predicted.cpu().numpy())
 
         cm = confusion_matrix(y_true, y_pred)
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes)
         disp.plot(cmap=plt.cm.Blues, xticks_rotation=45)
         plt.title(f'Confusion Matrix ({model_name}, {opt_name})')
-        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_{model_name}_{opt_name}.png')
-        plt.show()
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_Sigmoid_{model_name}_{opt_name}.png')
+        plt.close()
 
         # ---------- 誤分類圖片 ----------
         misclassified_images = []
         with torch.no_grad():
             for inputs, labels in testloader:
+                inputs, labels = inputs.to(device), labels.to(device)
                 outputs = net(inputs)
                 _, predicted = torch.max(outputs, 1)
                 for i in range(len(labels)):
                     if labels[i] != predicted[i]:
-                        misclassified_images.append((inputs[i], predicted[i], labels[i]))
-                    if len(misclassified_images) >= 10:
-                        break
+                        misclassified_images.append((inputs[i].cpu(), predicted[i].cpu(), labels[i].cpu()))
+                        if len(misclassified_images) >= 10:
+                            break
                 if len(misclassified_images) >= 10:
                     break
-
         plt.figure(figsize=(12, 6))
         for i, (img, pred, label) in enumerate(misclassified_images):
             plt.subplot(2, 5, i + 1)
@@ -156,8 +173,8 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
             plt.title(f'P: {classes[pred]}\nT: {classes[label]}')
             plt.axis('off')
         plt.suptitle(f'Misclassified Images ({model_name}, {opt_name})')
-        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_{model_name}_{opt_name}.png')
-        plt.show()
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_Sigmoid_{model_name}_{opt_name}.png')
+        plt.close()
 
         results[opt_name] = {
             'train_loss': loss_list,
@@ -191,10 +208,11 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\overfitting_curve_{model_name}.png')
-    plt.show()
-    
+    plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\overfitting_curve_Sigmoid_{model_name}.png')
+    plt.close()
+
     return results
+
 
 # ========== 測試執行 ==========
 optimizers = {
