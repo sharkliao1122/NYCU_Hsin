@@ -1,3 +1,4 @@
+# LeakyReLU 激活 + Dropout
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -75,7 +76,7 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
         net = model_class(dropout_p=dropout_p).to(device)
         criterion = nn.CrossEntropyLoss().to(device)
         optimizer = opt_fn(net)
-        
+
         loss_list, acc_list = [], []
         test_loss_list, test_acc_list = [], []
 
@@ -142,45 +143,54 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
                 y_true.extend(labels.cpu().numpy())
                 y_pred.extend(predicted.cpu().numpy())
 
-    cm = confusion_matrix(y_true, y_pred)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes)
-    disp.plot(cmap=plt.cm.Blues, xticks_rotation=45)
-    plt.title(f'Confusion Matrix ({model_name}, {opt_name}, LeakyReLU)')
-    plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_LeakyReLU_{model_name}_{opt_name}.png')
-    plt.close()
+        cm = confusion_matrix(y_true, y_pred)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes)
+        disp.plot(cmap=plt.cm.Blues, xticks_rotation=45)
+        plt.title(f'Confusion Matrix ({model_name}, {opt_name}, LeakyReLU)')
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_LeakyReLU_{model_name}_{opt_name}.png')
+        plt.close()
 
-    # ---------- 誤分類圖片 ----------
-    misclassified_images = []
-    with torch.no_grad():
-        for inputs, labels in testloader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = net(inputs)
-            _, predicted = torch.max(outputs, 1)
-            for i in range(len(labels)):
-                if labels[i] != predicted[i]:
-                    # 回到 CPU 以便顯示
-                    misclassified_images.append((inputs[i].cpu(), predicted[i].cpu(), labels[i].cpu()))
+        # ---------- 誤分類圖片 ----------
+        misclassified_images = []
+        with torch.no_grad():
+            for inputs, labels in testloader:
+                inputs, labels = inputs.to(device), labels.to(device)
+                outputs = net(inputs)
+                _, predicted = torch.max(outputs, 1)
+                for i in range(len(labels)):
+                    if labels[i] != predicted[i]:
+                        # 回到 CPU 以便顯示
+                        misclassified_images.append((inputs[i].cpu(), predicted[i].cpu(), labels[i].cpu()))
+                    if len(misclassified_images) >= 10:
+                        break
                 if len(misclassified_images) >= 10:
                     break
-            if len(misclassified_images) >= 10:
-                break
 
-    plt.figure(figsize=(12, 6))
-    for i, (img, pred, label) in enumerate(misclassified_images):
-        plt.subplot(2, 5, i + 1)
-        plt.imshow(np.transpose(img.numpy(), (1, 2, 0)))
-        plt.title(f'P: {classes[pred]}\nT: {classes[label]}')
-        plt.axis('off')
-    plt.suptitle(f'Misclassified Images ({model_name}, {opt_name}, LeakyReLU)')
-    plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_LeakyReLU_{model_name}_{opt_name}.png')
-    plt.close()
+        plt.figure(figsize=(12, 6))
+        n_img = len(misclassified_images)
+        if n_img == 0:
+            print(f"[WARNING] No misclassified images found for {model_name}, {opt_name}")
+        for i, (img, pred, label) in enumerate(misclassified_images):
+            plt.subplot(2, 5, i + 1)
+            plt.imshow(np.transpose(img.numpy(), (1, 2, 0)))
+            plt.title(f'P: {classes[pred]}\nT: {classes[label]}')
+            plt.axis('off')
+        # 若不足 10 張，補空白子圖
+        for i in range(n_img, 10):
+            plt.subplot(2, 5, i + 1)
+            plt.axis('off')
+        plt.suptitle(f'Misclassified Images ({model_name}, {opt_name}, LeakyReLU)')
+        print(f"[INFO] Saving misclassified images: misclassified_LeakyReLU_{model_name}_{opt_name}.png")
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_LeakyReLU_{model_name}_{opt_name}.png')
+        print(f"[INFO] Saved misclassified images: misclassified_LeakyReLU_{model_name}_{opt_name}.png")
+        plt.close()
 
-    results[opt_name] = {
-        'train_loss': loss_list,
-        'train_acc': acc_list,
-        'test_loss': test_loss_list,
-        'test_acc': test_acc_list
-    }
+        results[opt_name] = {
+            'train_loss': loss_list,
+            'train_acc': acc_list,
+            'test_loss': test_loss_list,
+            'test_acc': test_acc_list
+        }
 
     # ---------- 畫圖：過擬合判斷 ----------
     plt.figure(figsize=(12,5))

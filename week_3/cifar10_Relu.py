@@ -146,11 +146,10 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
         cm = confusion_matrix(y_true, y_pred)
         disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes)
         disp.plot(cmap=plt.cm.Blues, xticks_rotation=45)
-        plt.title(f'Confusion Matrix (relu, {model_name}, {opt_name})')
-        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_relu_{model_name}_{opt_name}.png')
-        plt.title(f'Confusion Matrix (relu, {model_name}, {opt_name})')
-        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_relu_{model_name}_{opt_name}.png')
-        
+        plt.title(f'Confusion Matrix ({model_name}, {opt_name}, ReLU)')
+        print(f"[INFO] Saving confusion matrix: confusion_ReLU_{model_name}_{opt_name}.png")
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\confusion_ReLU_{model_name}_{opt_name}.png')
+        plt.close()
 
         # ---------- 誤分類圖片 ----------
         misclassified_images = []
@@ -169,17 +168,22 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
                     break
 
         plt.figure(figsize=(12, 6))
+        n_img = len(misclassified_images)
+        if n_img == 0:
+            print(f"[WARNING] No misclassified images found for {model_name}, {opt_name}")
         for i, (img, pred, label) in enumerate(misclassified_images):
             plt.subplot(2, 5, i + 1)
             plt.imshow(np.transpose(img.numpy(), (1, 2, 0)))
-            plt.title(f'P: {classes[pred]}\nT: {classes[label]} (relu)')
-            plt.title(f'P: {classes[pred]}\nT: {classes[label]} (relu)')
+            plt.title(f'P: {classes[pred]}\nT: {classes[label]}')
             plt.axis('off')
-        plt.suptitle(f'Misclassified Images (relu, {model_name}, {opt_name})')
-        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_relu_{model_name}_{opt_name}.png')
-        plt.suptitle(f'Misclassified Images (relu, {model_name}, {opt_name})')
-        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_relu_{model_name}_{opt_name}.png')
-        
+        # 若不足 10 張，補空白子圖
+        for i in range(n_img, 10):
+            plt.subplot(2, 5, i + 1)
+            plt.axis('off')
+        plt.suptitle(f'Misclassified Images ({model_name}, {opt_name}, LeakyReLU)')
+        print(f"[INFO] Saving misclassified images: misclassified_LeakyReLU_{model_name}_{opt_name}.png")
+        plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\misclassified_ReLU_{model_name}_{opt_name}.png')
+        plt.close()
 
         results[opt_name] = {
             'train_loss': loss_list,
@@ -213,9 +217,10 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
     plt.legend()
 
     plt.tight_layout()
-    plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\overfitting_curve_RELU_{model_name}.png')
-    
-    
+    print(f"[INFO] Saving overfitting curve: overfitting_curve_LeakyReLU_{model_name}.png")
+    plt.savefig(f'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\week_3\\photo\\overfitting_curve_ReLU_{model_name}.png')
+    print(f"[INFO] Saved overfitting curve: overfitting_curve_LeakyReLU_{model_name}.png")
+    plt.close()
     return results
 
 # ========== 測試執行 ==========
