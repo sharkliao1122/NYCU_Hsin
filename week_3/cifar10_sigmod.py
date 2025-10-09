@@ -204,6 +204,7 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
     plt.title(f'{model_name} Loss')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
+    plt.ylim(0 , 3)
     plt.legend()
 
     # Accuracy 曲線
@@ -215,6 +216,7 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
     plt.title(f'{model_name} Accuracy')
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy (%)')
+    plt.ylim(0 , 80)
     plt.legend()
 
     plt.tight_layout()
