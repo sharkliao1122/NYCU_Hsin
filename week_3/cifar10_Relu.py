@@ -215,7 +215,7 @@ def train_and_evaluate(model_class, model_name, dropout_p, optimizers, num_epoch
     plt.title(f'{model_name} Accuracy')
     plt.xlabel('Epoch')
     plt.ylabel('Accuracy (%)')
-    plt.ylim(0 , 80)
+    plt.ylim(0 , 100)
     plt.legend()
 
     plt.tight_layout()
@@ -232,4 +232,4 @@ optimizers = {
     'RMSprop': lambda net: optim.RMSprop(net.parameters(), lr=0.001)
 }
 
-results = train_and_evaluate(Net, "FC_Net", dropout_p=0.5, optimizers=optimizers, num_epochs=5)
+results = train_and_evaluate(Net, "FC_Net", dropout_p=0.5, optimizers=optimizers, num_epochs=25)

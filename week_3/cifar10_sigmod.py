@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 
 # For tips on running notebooks in Google Colab, see
 
