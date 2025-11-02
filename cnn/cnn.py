@@ -1,3 +1,4 @@
+# 設定本地資料夾路徑
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -14,6 +15,7 @@ from tempfile import TemporaryDirectory
 import os, zipfile, urllib.request, pathlib
 import urllib
 import torch, platform
+
 print("Torch:", torch.__version__)
 print("CUDA runtime in torch:", torch.version.cuda)  # 這是 torch 綁定的 CUDA 版本（與系統 CUDA 不必完全相同）
 print("GPU available:", torch.cuda.is_available())
@@ -42,16 +44,9 @@ data_transforms = {
     ]),
 }
 
-
-
-
 # === 本地執行修正版 ===
-# 1) 設定本地資料夾路徑
-data_dir = os.path.join(os.path.dirname(__file__), 'computer vision', 'hymenoptera_data')
-print("Working dir:", os.getcwd())
-print("Data dir exists:", os.path.isdir(data_dir))
-print("train exists:", os.path.isdir(os.path.join(data_dir, "train")))
-print("val exists:", os.path.isdir(os.path.join(data_dir, "val")))
+# 1) 設定本地資料夾路徑 為 C:\Users\s7103\OneDrive\桌面\碩士班\NYCU_Hsin\cnn\hymenoptera_data
+data_dir = r"C:\Users\s7103\OneDrive\桌面\碩士班\NYCU_Hsin\cnn\hymenoptera_data"
 
 # 2) 建立 ImageFolder
 from torchvision import datasets, transforms
