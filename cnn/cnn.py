@@ -12,12 +12,9 @@ import time
 import os
 from PIL import Image
 from tempfile import TemporaryDirectory
-import os, zipfile, urllib.request, pathlib
-import urllib
-import torch, platform
 
 print("Torch:", torch.__version__)
-print("CUDA runtime in torch:", torch.version.cuda)  # 這是 torch 綁定的 CUDA 版本（與系統 CUDA 不必完全相同）
+print("CUDA runtime in torch:", torch.version.cuda) 
 print("GPU available:", torch.cuda.is_available())
 if torch.cuda.is_available():
     print("GPU name:", torch.cuda.get_device_name(0))
