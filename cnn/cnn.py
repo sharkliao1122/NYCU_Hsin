@@ -23,7 +23,7 @@ plt.ion()   # interactive mode
 
 # ---------- CONFIG ----------
 # Path to dataset (keep as your absolute path)
-data_dir = 'C:\\Users\\s7103\\OneDrive\\桌面\\碩士班\\NYCU_Hsin\\computer vision\\hymenoptera_data'
+data_dir = "C:\Users\s7103\OneDrive\桌面\碩士班\NYCU_Hsin\cnn\computer vision\hymenoptera_data"
 
 # Outputs directory under the cnn module folder
 output_dir = os.path.join(os.path.dirname(__file__), 'outputs')
