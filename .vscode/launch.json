@@ -1,15 +1,41 @@
 {
-    // 使用 IntelliSense 以得知可用的屬性。
-    // 暫留以檢視現有屬性的描述。
-    // 如需詳細資訊，請瀏覽: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Python 偵錯工具: 目前檔案",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal"
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    
+    {
+      "name": "Python: 目前檔案",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "subProcess": true,
+      "env": { "CUDA_LAUNCH_BLOCKING": "1" }
+    },
+    {
+      "name": "Python: 以模組啟動 (-m)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "cnn_clean",
+      "args": ["--data_dir", "C:/path/to/data", "--epochs", "5"],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "subProcess": true
+    },
+    {
+      "name": "Torch: torchrun（單/多卡）",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "torch.distributed.run",
+      "args": ["--nproc_per_node", "1", "cnn_clean.py", "--data_dir", "C:/path/to/data"],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Python: Attach by PID",
+      "type": "debugpy",
+      "request": "attach",
+      "processId": "${command:pickProcess}"
+    }
+  ]
 }
