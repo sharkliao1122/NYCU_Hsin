@@ -27,7 +27,8 @@ from torchvision import datasets, transforms, models
 
 # sklearn for metrics
 from sklearn.metrics import (
-    confusion_matrix, classification_report, roc_auc_score, roc_curve
+    confusion_matrix, classification_report, roc_auc_score, roc_curve,
+    precision_recall_fscore_support
 )
 from sklearn.preprocessing import label_binarize
 
@@ -53,7 +54,7 @@ cudnn.benchmark = True  # speed up on fixed input size
 MODEL_NAME = 'vgg16'      # <<< 你可改
 FREEZE_BACKBONE = True       # <<< True=只訓練分類頭；False=全模型微調
 BATCH_SIZE = 128
-EPOCHS = 15                  # <<< 你可改
+EPOCHS = 2                  # <<< 你可改
 BASE_LR = 1e-3               # <<< 你可改
 STEP_SIZE = 7
 GAMMA = 0.1
@@ -336,6 +337,53 @@ print(f"[TEST] Loss {test_loss:.4f} Acc {test_acc:.4f}")
 # Classification report (per-class precision/recall/F1)
 report = classification_report(y_true, y_pred, target_names=CIFAR10_CLASSES, digits=4)
 print("\nClassification Report:\n", report)
+
+# Compute per-class precision / recall / f1 / support
+precisions, recalls, f1s, supports = precision_recall_fscore_support(
+    y_true, y_pred, labels=list(range(NUM_CLASSES)), zero_division=0
+)
+
+# Print a neat table
+line_fmt = "{:<12} {:>9} {:>9} {:>9} {:>8}"
+print("\nPer-class metrics:")
+print(line_fmt.format('class', 'precision', 'recall', 'f1-score', 'support'))
+print('-'*52)
+for cls_name, p, r, f1s_val, s in zip(CIFAR10_CLASSES, precisions, recalls, f1s, supports):
+    print(line_fmt.format(cls_name, f"{p:.4f}", f"{r:.4f}", f"{f1s_val:.4f}", int(s)))
+
+# Plot grouped bar chart for precision / recall / f1 (with numeric labels)
+indices = np.arange(NUM_CLASSES)
+width = 0.25
+plt.figure(figsize=(12, 6))
+bars_p = plt.bar(indices - width, precisions, width, label='precision')
+bars_r = plt.bar(indices, recalls, width, label='recall')
+bars_f = plt.bar(indices + width, f1s, width, label='f1-score')
+plt.xticks(indices, CIFAR10_CLASSES, rotation=45, ha='right')
+plt.ylim(0.0, 1.05)
+plt.ylabel('score')
+plt.title(f'Per-class precision/recall/f1 - {MODEL_NAME}')
+plt.legend(loc='upper right')
+
+# annotate bars with values
+def annotate_bars(bars, fmt="{:.2f}", offset=0.01):
+    for bar in bars:
+        h = bar.get_height()
+        if np.isnan(h):
+            txt = "n/a"
+        else:
+            txt = fmt.format(h)
+        plt.text(bar.get_x() + bar.get_width()/2., h + offset, txt,
+                 ha='center', va='bottom', fontsize=8, rotation=0)
+
+annotate_bars(bars_p, fmt="{:.2f}", offset=0.01)
+annotate_bars(bars_r, fmt="{:.2f}", offset=0.01)
+annotate_bars(bars_f, fmt="{:.2f}", offset=0.01)
+
+plt.tight_layout()
+chart_path = os.path.join(SAVE_DIR, f"per_class_metrics_{MODEL_NAME}.png")
+plt.savefig(chart_path, dpi=200)
+plt.close()
+print(f"\nPer-class metric chart saved to: {chart_path}")
 
 # Confusion matrix
 cm = confusion_matrix(y_true, y_pred)
