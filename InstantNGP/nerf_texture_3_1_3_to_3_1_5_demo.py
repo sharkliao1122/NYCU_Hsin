@@ -140,8 +140,7 @@ def project_single_point_numpy(x):
     origins = x.reshape(1, 3)
     directions = (-nc).reshape(1, 3)
 
-    # 先假設沒 miss
-    miss = False
+    miss = False  # 先假設沒有 miss
 
     locations, _, _ = mesh.ray.intersects_location(
         ray_origins=origins,
@@ -171,7 +170,6 @@ def project_single_point_numpy(x):
     return xc, s, nc, miss
 
 
-
 def project_to_base_numpy(points):
     """
     points: (N,3) numpy
@@ -196,10 +194,9 @@ def project_to_base_numpy(points):
 
     N = len(points)
     print(f"[INFO] Ray miss count: {miss_count} / {N}  "
-          f"({miss_count / max(N,1):.2%})")
+          f"({miss_count / max(N, 1):.2%})")
 
     return np.stack(xs, axis=0), np.array(ss), np.stack(ns, axis=0)
-
 
 
 # ============================
@@ -328,15 +325,17 @@ class HashGridEncoding(nn.Module):
         xc: (N,3) footpoints (world space)
         會先正規化到 [0,1]^3 再丟進 HashGrid
         """
-        # 確保在 GPU + float32
-        x = xc
+        x = xc  # (N,3)
 
-        # [0,1] normalize
+        # [0,1] normalize``
         scale = (self.bbox_max - self.bbox_min).clamp(min=1e-6)
         x_norm = (x - self.bbox_min) / scale
         x_norm = x_norm.contiguous()  # tcnn 要求 contiguous
 
-        return self.encoding(x_norm)
+        feat = self.encoding(x_norm)     # 這裡通常是 float16 (Half)
+        feat = feat.to(x.dtype)          # ✅ 轉成和輸入一樣的 dtype（float32）
+
+        return feat
 
 
 
