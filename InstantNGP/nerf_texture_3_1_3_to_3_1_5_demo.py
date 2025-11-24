@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import trimesh
 from scipy.spatial import cKDTree
+import tinycudann as tcnn    
 
 # ============================
 # 全域設定
@@ -266,21 +267,60 @@ class SDFEncoding(nn.Module):
         return torch.cat([sin, cos], dim=-1)  # (N, 2F)
 
 
-class DummyHashEncoding(nn.Module):
+class HashGridEncoding(nn.Module):
     """
-    用簡單 MLP 代替 hash grid encoding。
-    之後你可以換成 tiny-cuda-nn 的 HashGrid。
+    tiny-cuda-nn HashGrid encoding 包裝。
+    這裡設定：n_levels=16、每層 2 維 → 輸出維度 32，
+    等於之前 DummyHashEncoding 的 feat_dim=32。
     """
-    def __init__(self, in_dim=3, out_dim=32, hidden_dim=64):
+    def __init__(
+        self,
+        n_levels=16,
+        n_features_per_level=2,
+        log2_hashmap_size=19,
+        base_resolution=16,
+        per_level_scale=1.5,
+        bbox_min=None,
+        bbox_max=None,
+    ):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, out_dim),
+
+        # tiny-cuda-nn Encoding
+        self.encoding = tcnn.Encoding(
+            n_input_dims=3,
+            encoding_config={
+                "otype": "HashGrid",
+                "n_levels": n_levels,
+                "n_features_per_level": n_features_per_level,
+                "log2_hashmap_size": log2_hashmap_size,
+                "base_resolution": base_resolution,
+                "per_level_scale": per_level_scale,
+            }
         )
+        self.out_dim = n_levels * n_features_per_level
+
+        # 把 base mesh 的 bounding box 存成 buffer，用來把 x_c 正規化到 [0,1]
+        if bbox_min is None or bbox_max is None:
+            raise ValueError("bbox_min / bbox_max 不能是 None")
+
+        self.register_buffer("bbox_min", torch.from_numpy(bbox_min).float())
+        self.register_buffer("bbox_max", torch.from_numpy(bbox_max).float())
 
     def forward(self, xc):
-        return self.net(xc)  # (N,out_dim)
+        """
+        xc: (N,3) footpoints (world space)
+        會先正規化到 [0,1]^3 再丟進 HashGrid
+        """
+        # 確保在 GPU + float32
+        x = xc
+
+        # [0,1] normalize
+        scale = (self.bbox_max - self.bbox_min).clamp(min=1e-6)
+        x_norm = (x - self.bbox_min) / scale
+        x_norm = x_norm.contiguous()  # tcnn 要求 contiguous
+
+        return self.encoding(x_norm)
+
 
 
 class AttributeMLP(nn.Module):
@@ -317,14 +357,39 @@ class AttributeMLP(nn.Module):
 
 class NeRFTextureAttributes(nn.Module):
     """
-    3.1.4 簡化版：
-      - f(x): 用於主要屬性 + patch embedding
-      - \hat{f}(x): 額外給 fine normal 用（這裡先當輸出）
+    3.1.4 + 真正 tiny-cuda-nn HashGrid：
+      - f(x): HashGridEncoding
+      - \hat{f}(x): 另一個 HashGridEncoding（獨立參數）
     """
-    def __init__(self, feat_dim=32, sdf_freqs=6):
+    def __init__(self, sdf_freqs=6, bbox_min=None, bbox_max=None):
         super().__init__()
-        self.hash_f   = DummyHashEncoding(out_dim=feat_dim)
-        self.hash_fh  = DummyHashEncoding(out_dim=feat_dim)
+
+        if bbox_min is None or bbox_max is None:
+            raise ValueError("NeRFTextureAttributes 需要 bbox_min / bbox_max")
+
+        # 用同一組超參數建兩個 HashGrid（f 和 f_hat 是不同的貼圖）
+        self.hash_f = HashGridEncoding(
+            n_levels=16,
+            n_features_per_level=2,
+            log2_hashmap_size=19,
+            base_resolution=16,
+            per_level_scale=1.5,
+            bbox_min=bbox_min,
+            bbox_max=bbox_max,
+        )
+
+        self.hash_fh = HashGridEncoding(
+            n_levels=16,
+            n_features_per_level=2,
+            log2_hashmap_size=19,
+            base_resolution=16,
+            per_level_scale=1.5,
+            bbox_min=bbox_min,
+            bbox_max=bbox_max,
+        )
+
+        feat_dim = self.hash_f.out_dim  # 這裡會是 32
+
         self.sdf_enc  = SDFEncoding(num_frequencies=sdf_freqs)
         self.mlp_main = AttributeMLP(
             feat_dim=feat_dim,
@@ -332,9 +397,15 @@ class NeRFTextureAttributes(nn.Module):
         )
 
     def forward(self, xc, s):
-        f     = self.hash_f(xc)   # (N,feat_dim)
-        f_hat = self.hash_fh(xc)  # (N,feat_dim)
-        sdf_embed = self.sdf_enc(s)  # (N,2*freqs)
+        """
+        xc: (N,3)  footpoint
+        s : (N,1)  signed distance
+        回傳:
+          sigma, kd, ks, g, theta, phi, f, f_hat
+        """
+        f     = self.hash_f(xc)
+        f_hat = self.hash_fh(xc)
+        sdf_embed = self.sdf_enc(s)
 
         sigma, kd, ks, g, theta, phi = self.mlp_main(f, sdf_embed)
         return sigma, kd, ks, g, theta, phi, f, f_hat
@@ -391,17 +462,26 @@ def phong_shading(kd, ks, gloss, n_f, light_dir, view_dir):
 # ============================
 
 def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     print(f"[INFO] Using device: {device}")
 
-    proj_layer = DifferentiableProjectionLayer().to(device)
-    attr_net   = NeRFTextureAttributes(feat_dim=32, sdf_freqs=6).to(device)
-
-    # 在 bounding box 裡取 N 個 random points
+    # 1. 先算 base mesh 的 bounding box（給 HashGrid 使用，也給 random sample 用）
     bbox_min = vertices.min(axis=0)
     bbox_max = vertices.max(axis=0)
-    N = 256
 
+    # 2. 建 Projection Layer
+    proj_layer = DifferentiableProjectionLayer().to(device)
+
+    # 3. 建 Attribute 網路，這裡要把 bbox_min / bbox_max 傳進去
+    #    （這樣 HashGridEncoding 才知道怎麼把 xc 正規化到 [0,1]^3）
+    attr_net   = NeRFTextureAttributes(
+        sdf_freqs=6,
+        bbox_min=bbox_min,
+        bbox_max=bbox_max,
+    ).to(device)
+
+    # 4. 在 bounding box 裡取 N 個 random points 當測試 sample
+    N = 256
     pts_np = bbox_min + np.random.rand(N, 3) * (bbox_max - bbox_min)
     x = torch.from_numpy(pts_np).float().to(device)
     x.requires_grad_(True)
@@ -452,7 +532,6 @@ def main():
 
     grad_norm = x.grad.norm().item()
     print("[INFO] Grad norm on x:", grad_norm)
-
 
 if __name__ == "__main__":
     main()
