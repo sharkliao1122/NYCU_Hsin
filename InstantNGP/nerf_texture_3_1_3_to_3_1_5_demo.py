@@ -132,12 +132,16 @@ def project_single_point_numpy(x):
       xc: footpoint on base mesh, (3,)
       s : signed distance (float)
       nc: coarse normal n_c(x), (3,)
+      miss: bool，此點是否曾經 ray miss 而用了 fallback
     """
     x = np.asarray(x, dtype=np.float64)
     nc = coarse_normal_numpy(x)
 
     origins = x.reshape(1, 3)
     directions = (-nc).reshape(1, 3)
+
+    # 先假設沒 miss
+    miss = False
 
     locations, _, _ = mesh.ray.intersects_location(
         ray_origins=origins,
@@ -147,6 +151,7 @@ def project_single_point_numpy(x):
 
     if len(locations) == 0:
         # 射不到就改成朝最近頂點方向射
+        miss = True
         print("[WARN] Ray miss, fallback to nearest-vertex direction.")
         dists, idx = kdtree.query(x, k=1)
         v1 = vertices[idx]
@@ -163,7 +168,8 @@ def project_single_point_numpy(x):
     xc = locations[0]
     s = float(np.dot(x - xc, nc))  # 向 nc 方向為正
 
-    return xc, s, nc
+    return xc, s, nc, miss
+
 
 
 def project_to_base_numpy(points):
@@ -173,16 +179,27 @@ def project_to_base_numpy(points):
       xc_np: (N,3)
       s_np : (N,)
       nc_np: (N,3)
+    並在函式內印出 ray miss 的數量
     """
     xs = []
     ss = []
     ns = []
+    miss_count = 0
+
     for x in points:
-        xc, s, nc = project_single_point_numpy(x)
+        xc, s, nc, miss = project_single_point_numpy(x)
         xs.append(xc)
         ss.append(s)
         ns.append(nc)
+        if miss:
+            miss_count += 1
+
+    N = len(points)
+    print(f"[INFO] Ray miss count: {miss_count} / {N}  "
+          f"({miss_count / max(N,1):.2%})")
+
     return np.stack(xs, axis=0), np.array(ss), np.stack(ns, axis=0)
+
 
 
 # ============================
@@ -354,6 +371,23 @@ class AttributeMLP(nn.Module):
         phi   = out[..., 9:10]
         return sigma, kd, ks, gloss, theta, phi
 
+class FineNormalHead(nn.Module):
+    """用 f_hat(x) 預測 fine normal residual（在 tangent frame 裡）"""
+    def __init__(self, feat_dim=32, hidden_dim=64):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(feat_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 3),   # 輸出 (N,3) 的向量
+        )
+
+    def forward(self, feat_hat):
+        # 用 tanh 把幅度卡住，不要太爆
+        n_res_local = torch.tanh(self.mlp(feat_hat))
+        return n_res_local  # (N,3)
+
 
 class NeRFTextureAttributes(nn.Module):
     """
@@ -367,7 +401,7 @@ class NeRFTextureAttributes(nn.Module):
         if bbox_min is None or bbox_max is None:
             raise ValueError("NeRFTextureAttributes 需要 bbox_min / bbox_max")
 
-        # 用同一組超參數建兩個 HashGrid（f 和 f_hat 是不同的貼圖）
+        # f(x) 的 HashGrid
         self.hash_f = HashGridEncoding(
             n_levels=16,
             n_features_per_level=2,
@@ -378,6 +412,7 @@ class NeRFTextureAttributes(nn.Module):
             bbox_max=bbox_max,
         )
 
+        # \hat{f}(x) 的 HashGrid（獨立參數）
         self.hash_fh = HashGridEncoding(
             n_levels=16,
             n_features_per_level=2,
@@ -388,7 +423,7 @@ class NeRFTextureAttributes(nn.Module):
             bbox_max=bbox_max,
         )
 
-        feat_dim = self.hash_f.out_dim  # 這裡會是 32
+        feat_dim = self.hash_f.out_dim  # 32
 
         self.sdf_enc  = SDFEncoding(num_frequencies=sdf_freqs)
         self.mlp_main = AttributeMLP(
@@ -396,19 +431,28 @@ class NeRFTextureAttributes(nn.Module):
             sdf_embed_dim=2 * sdf_freqs
         )
 
+        # 用 f_hat 做 fine normal residual
+        self.fine_normal_head = FineNormalHead(
+            feat_dim=feat_dim,
+            hidden_dim=64
+        )
+
     def forward(self, xc, s):
         """
         xc: (N,3)  footpoint
         s : (N,1)  signed distance
         回傳:
-          sigma, kd, ks, g, theta, phi, f, f_hat
+          sigma, kd, ks, g, theta, phi, f, f_hat, n_res_local
         """
-        f     = self.hash_f(xc)
-        f_hat = self.hash_fh(xc)
+        f     = self.hash_f(xc)      # (N,feat_dim)
+        f_hat = self.hash_fh(xc)     # (N,feat_dim)
         sdf_embed = self.sdf_enc(s)
 
         sigma, kd, ks, g, theta, phi = self.mlp_main(f, sdf_embed)
-        return sigma, kd, ks, g, theta, phi, f, f_hat
+        n_res_local = self.fine_normal_head(f_hat)      # (N,3)
+
+        return sigma, kd, ks, g, theta, phi, f, f_hat, n_res_local
+
 
 
 # ============================
@@ -462,55 +506,62 @@ def phong_shading(kd, ks, gloss, n_f, light_dir, view_dir):
 # ============================
 
 def main():
-    device = torch.device("cpu")
+    # 有 GPU 就用 cuda，沒有就用 cpu
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Using device: {device}")
 
-    # 1. 先算 base mesh 的 bounding box（給 HashGrid 使用，也給 random sample 用）
+    # 1. base mesh 的 bounding box
     bbox_min = vertices.min(axis=0)
     bbox_max = vertices.max(axis=0)
 
-    # 2. 建 Projection Layer
+    # 2. Projection layer + Attribute 網路
     proj_layer = DifferentiableProjectionLayer().to(device)
-
-    # 3. 建 Attribute 網路，這裡要把 bbox_min / bbox_max 傳進去
-    #    （這樣 HashGridEncoding 才知道怎麼把 xc 正規化到 [0,1]^3）
     attr_net   = NeRFTextureAttributes(
         sdf_freqs=6,
         bbox_min=bbox_min,
         bbox_max=bbox_max,
     ).to(device)
 
-    # 4. 在 bounding box 裡取 N 個 random points 當測試 sample
+    # 3. 在 bounding box 裡取 N 個 random points 當 sample
     N = 256
     pts_np = bbox_min + np.random.rand(N, 3) * (bbox_max - bbox_min)
     x = torch.from_numpy(pts_np).float().to(device)
     x.requires_grad_(True)
 
+    # 4. differentiable projection: x → (x_c, s, n_c)
     print("[INFO] Running differentiable projection ...")
     xc, s, nc = proj_layer(x)  # xc:(N,3), s:(N,1), nc:(N,3)
 
-    # 查詢 tangent frame（用 numpy + KDTree，視為常數，不對 Tc 做微分）
+    # 5. 查 tangent frame T_c(x)（numpy + KDTree，當常數使用）
     xc_np = xc.detach().cpu().numpy()
-    Tc_np = query_tangent_frames_numpy(xc_np)  # (N,3,3)
+    Tc_np = query_tangent_frames_numpy(xc_np)      # (N,3,3)
     Tc = torch.from_numpy(Tc_np).to(device=device, dtype=x.dtype)  # (N,3,3)
 
+    # 6. Attributes prediction（含 f, f_hat, fine normal residual）
     print("[INFO] Running attributes prediction ...")
-    sigma, kd, ks, g, theta, phi, f, f_hat = attr_net(xc, s)
+    sigma, kd, ks, g, theta, phi, f, f_hat, n_res_local = attr_net(xc, s)
 
-    # local normal → world normal
-    n_local = local_angles_to_normal(theta, phi)      # (N,3)
-    n_local_3d = n_local.unsqueeze(-1)                # (N,3,1)
-    n_f = torch.matmul(Tc, n_local_3d).squeeze(-1)    # (N,3)
-    n_f = n_f / (torch.norm(n_f, dim=-1, keepdim=True) + 1e-8)
+    # 7. coarse normal（由 theta, phi 決定）
+    n_local = local_angles_to_normal(theta, phi)        # (N,3) ，tangent frame 下
+    n_local_3d = n_local.unsqueeze(-1)                  # (N,3,1)
+    n_coarse = torch.matmul(Tc, n_local_3d).squeeze(-1) # (N,3)，world space
+    n_coarse = n_coarse / (torch.norm(n_coarse, dim=-1, keepdim=True) + 1e-8)
 
-    # 簡單設定一個光線方向 & 觀察方向
+    # 8. fine normal residual：先在 tangent frame，轉到 world 再相加
+    n_res_local_3d = n_res_local.unsqueeze(-1)          # (N,3,1)
+    n_res_world = torch.matmul(Tc, n_res_local_3d).squeeze(-1)  # (N,3)
+
+    n_final = n_coarse + n_res_world
+    n_final = n_final / (torch.norm(n_final, dim=-1, keepdim=True) + 1e-8)
+
+    # 9. Shading
     light_dir = torch.tensor([0.5, 0.8, 0.2], device=device, dtype=x.dtype)
     view_dir  = torch.tensor([0.0, 0.0, 1.0], device=device, dtype=x.dtype)
 
     print("[INFO] Running shading ...")
-    rgb = phong_shading(kd, ks, g, n_f, light_dir, view_dir)  # (N,3)
+    rgb = phong_shading(kd, ks, g, n_final, light_dir, view_dir)  # (N,3)
 
-    # 假設 ground truth = 0，只為了測試 backward
+    # 10. Loss + backward（純測試用）
     rgb_gt = torch.zeros_like(rgb)
 
     loss_color = ((rgb - rgb_gt) ** 2).mean()
@@ -529,9 +580,9 @@ def main():
     print("[INFO] Total loss:", float(loss.item()))
 
     loss.backward()
-
     grad_norm = x.grad.norm().item()
     print("[INFO] Grad norm on x:", grad_norm)
+
 
 if __name__ == "__main__":
     main()
